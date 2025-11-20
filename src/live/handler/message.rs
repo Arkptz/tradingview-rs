@@ -136,7 +136,7 @@ pub enum Command {
     StartReplay {
         session: Ustr,
         series_id: Ustr,
-        interval: Interval,
+        interval: i64,
     },
     StopReplay {
         session: Ustr,

@@ -1,10 +1,11 @@
 use crate::{Error, Result, error::LoginError};
 
 pub mod batch;
+pub mod full_with_replay;
 pub mod single;
 
 /// Resolve authentication token from parameter or environment
-fn resolve_auth_token(auth_token: Option<&str>) -> Result<String> {
+pub fn resolve_auth_token(auth_token: Option<&str>) -> Result<String> {
     match auth_token {
         Some(token) => Ok(token.to_string()),
         None => {

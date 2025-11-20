@@ -48,6 +48,7 @@ bon = "3"
 dashmap = { version = "6.1.0", features = ["rayon", "serde", "inline"] }
 ustr = { version = "1.1.0", features = ["serde"] }
 tokio-util = { version = "0.7.15", features = ["futures-util", "tracing"] }
+csv = "1.4.0"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

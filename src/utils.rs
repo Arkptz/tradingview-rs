@@ -69,18 +69,31 @@ pub fn build_request(cookie: Option<&str>) -> Result<reqwest::Client> {
 }
 
 pub fn gen_session_id(session_type: &str) -> String {
-    session_type.to_owned() + "_" + &gen_id()
+    session_type.to_owned() + "_" + &gen_id_12()
+}
+
+pub fn gen_study_id() -> String {
+    "st_".to_string() + &gen_id_12()
 }
 
 #[inline]
-pub fn gen_id() -> String {
+pub fn gen_id(n: usize) -> String {
     let rng = rand::rng();
     let result: String = rng
         .sample_iter(&Alphanumeric)
-        .take(12)
+        .take(n)
         .map(char::from)
         .collect();
     result
+}
+
+#[inline]
+pub fn gen_id_12() -> String {
+    gen_id(12)
+}
+#[inline]
+pub fn gen_id_6() -> String {
+    gen_id(6)
 }
 
 #[inline]

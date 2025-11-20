@@ -1,4 +1,4 @@
-pub(crate) mod options;
+pub mod options;
 pub mod study;
 pub(crate) mod utils;
 

@@ -9,7 +9,6 @@ use crate::{
     client::misc::get_indicator_metadata,
     models::{FinancialPeriod, UserCookies},
 };
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum BuiltinIndicators {
     All,
@@ -247,6 +246,29 @@ impl PineIndicatorBuilder {
         })
     }
 }
+fn parse_rgba(rgba_str: &str) -> Option<u32> {
+    // Убираем "rgba(" и ")"
+    let cleaned = rgba_str.trim_start_matches("rgba(").trim_end_matches(')');
+
+    // Разбиваем на части
+    let parts: Vec<&str> = cleaned.split(',').collect();
+
+    if parts.len() == 4 {
+        let r = parts[0].trim().parse::<u8>().ok()?;
+        let g = parts[1].trim().parse::<u8>().ok()?;
+        let b = parts[2].trim().parse::<u8>().ok()?;
+        let a = parts[3].trim().parse::<f32>().ok()?;
+
+        Some(rgba_to_decimal(r, g, b, a))
+    } else {
+        None
+    }
+}
+
+fn rgba_to_decimal(r: u8, g: u8, b: u8, a: f32) -> u32 {
+    let alpha_byte = (a.clamp(0.0, 1.0) * 255.0) as u32;
+    (alpha_byte << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+}
 
 impl PineIndicator {
     pub fn build() -> PineIndicatorBuilder {
@@ -271,10 +293,24 @@ impl PineIndicator {
             if input.id == "text" || input.id == "pineId" || input.id == "pineVersion" {
                 return;
             }
+            let mut defval = None;
+            if input.input_type == "color" {
+                let value = input.defval.clone().to_string();
+                let cleaned_value = value.trim_matches('"');
+                if cleaned_value.starts_with("#") {
+                    let hex_str = &cleaned_value[1..];
+                    let hex_decimal = u32::from_str_radix(&format!("FF{}", hex_str), 16).unwrap();
+                    defval = Some(Value::from(hex_decimal));
+                } else {
+                    defval = Some(Value::from(parse_rgba(cleaned_value).unwrap()));
+                };
+            } else {
+                defval = Some(input.defval.clone())
+            };
             inputs.insert(
                 Ustr::from(&input.id),
                 IndicatorInput::IndicatorInput(InputValue {
-                    v: input.defval.clone(),
+                    v: defval.unwrap().clone(),
                     f: Value::from(input.is_fake),
                     t: Value::from(input.input_type.clone()),
                 }),

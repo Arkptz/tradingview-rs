@@ -11,7 +11,7 @@ use crate::{
     payload,
     pine_indicator::PineIndicator,
     quote::{ALL_QUOTE_FIELDS, models::QuoteValue},
-    utils::{gen_id, gen_session_id, parse_packet, symbol_init},
+    utils::{gen_id, gen_id_12, gen_session_id, gen_study_id, parse_packet, symbol_init},
 };
 
 use dashmap::DashMap;
@@ -115,11 +115,19 @@ pub(crate) struct ChartState {
     pub(crate) chart: Option<(SeriesInfo, Vec<DataPoint>)>,
     pub(crate) symbol_info: Option<SymbolInfo>,
 }
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ReplaySeriesInfo {
+    pub replay_session: String,
+    pub replay_series_id: String,
+}
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SeriesInfo {
     pub chart_session: Ustr,
+    pub series_id: Ustr,
+    pub symbol_series_id: String,
     pub options: ChartOptions,
+    pub replay_series_info: Option<ReplaySeriesInfo>,
 }
 
 pub struct WebSocketClient {
@@ -207,7 +215,7 @@ impl WebSocketClient {
         SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     )> {
         let url = Url::parse(&format!(
-            "wss://{server}.tradingview.com/socket.io/websocket"
+            "wss://{server}.tradingview.com/socket.io/websocket?type=chart"
         ))?;
 
         let mut request = url.into_client_request()?;
@@ -217,8 +225,8 @@ impl WebSocketClient {
 
         // Configure WebSocket with larger message size limits
         let conf = WebSocketConfig::default()
-            .read_buffer_size(1024 * 1024)
-            .write_buffer_size(1024 * 1024);
+            .read_buffer_size(32 * 1024 * 1024) // 32MB
+            .write_buffer_size(32 * 1024 * 1024); // 32MB
 
         let (socket, response) = connect_async_with_config(request, Some(conf), false).await?;
 
@@ -623,7 +631,7 @@ impl WebSocketClient {
         &self,
         session: &str,
         series_id: &str,
-        interval: Interval,
+        interval: i64, //ms
     ) -> Result<()> {
         self.send(
             "replay_start",
@@ -862,8 +870,8 @@ impl WebSocketClient {
         options: ChartOptions,
         chart_session: &str,
         symbol_series_id: &str,
-    ) -> Result<()> {
-        let replay_series_id = gen_id();
+    ) -> Result<ReplaySeriesInfo> {
+        let replay_series_id = gen_id_12();
         let replay_session = gen_session_id("rs");
 
         self.create_replay_session(&replay_session).await?;
@@ -880,7 +888,10 @@ impl WebSocketClient {
         )
         .await?;
 
-        Ok(())
+        Ok(ReplaySeriesInfo {
+            replay_series_id,
+            replay_session,
+        })
     }
 
     pub async fn set_study(
@@ -891,7 +902,7 @@ impl WebSocketClient {
     ) -> Result<()> {
         let study_count = self.studies_count.fetch_add(1, Ordering::SeqCst) + 1;
 
-        let study_id = Ustr::from(&format!("st{study_count}"));
+        let study_id = Ustr::from(&gen_study_id());
 
         let indicator = PineIndicator::build()
             .fetch(&study.script_id, &study.script_version, study.script_type)
@@ -906,7 +917,7 @@ impl WebSocketClient {
         Ok(())
     }
 
-    pub async fn set_market(&self, options: ChartOptions) -> Result<()> {
+    pub async fn set_market(&self, options: ChartOptions) -> Result<SeriesInfo> {
         let series_count = self.series_count.fetch_add(1, Ordering::SeqCst) + 1;
         let symbol_series_id = format!("sds_sym_{series_count}");
         let series_id = Ustr::from(&format!("sds_{series_count}"));
@@ -914,10 +925,12 @@ impl WebSocketClient {
         let chart_session = Ustr::from(&gen_session_id("cs"));
         let symbol = format!("{}:{}", options.exchange, options.symbol);
         self.create_chart_session(&chart_session).await?;
-
+        let mut replay_series_info = None;
         if options.replay_mode {
-            self.set_replay(&symbol, options, &chart_session, &symbol_series_id)
-                .await?;
+            replay_series_info = Some(
+                self.set_replay(&symbol, options, &chart_session, &symbol_series_id)
+                    .await?,
+            );
         } else {
             self.resolve_symbol(&chart_session, &symbol_series_id, &symbol, options, None)
                 .await?;
@@ -938,15 +951,18 @@ impl WebSocketClient {
 
         let series_info = SeriesInfo {
             chart_session,
+            series_id,
+            symbol_series_id,
             options,
+            replay_series_info,
         };
 
         self.data_handler
             .metadata
             .series
-            .insert(series_id, series_info);
+            .insert(series_id, series_info.clone());
 
-        Ok(())
+        Ok(series_info)
     }
 
     pub async fn subscribe(&self) -> Result<()> {
